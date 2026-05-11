@@ -27,22 +27,52 @@ class ProcessNoteWithAI implements ShouldQueue
             return;
         }
 
+        $note->update(['status' => 'processing']);
+
+        $rawContent = trim((string) ($note->raw_content ?? $note->content ?? ''));
+
         $apiKey = config('services.anthropic.key');
         $model = config('services.anthropic.model', 'claude-3-5-sonnet-latest');
+
+        $prompt = "Eres un asistente académico. Organiza y reestructura estos apuntes en español.\n"
+            ."Responde SOLO en Markdown con esta estructura:\n"
+            ."# Título\n"
+            ."## Ideas clave\n"
+            ."- ...\n"
+            ."## Desarrollo\n"
+            ."...\n"
+            ."## Resumen\n"
+            ."...\n\n"
+            ."Apuntes originales:\n\n"
+            .$rawContent;
+
+        if ($rawContent === '') {
+            AiLog::create([
+                'user_id' => $note->user_id,
+                'note_id' => $note->id,
+                'prompt' => $prompt,
+                'status' => 'failed',
+                'error_message' => 'La nota no tiene contenido.',
+            ]);
+
+            $note->update(['status' => 'failed']);
+
+            return;
+        }
 
         if (empty($apiKey)) {
             AiLog::create([
                 'user_id' => $note->user_id,
                 'note_id' => $note->id,
-                'prompt' => $note->content,
+                'prompt' => $prompt,
                 'status' => 'failed',
                 'error_message' => 'ANTHROPIC_API_KEY no configurada.',
             ]);
 
+            $note->update(['status' => 'failed']);
+
             return;
         }
-
-        $prompt = "Eres un asistente académico. Organiza, complementa y reestructura estos apuntes de estudiante en español. Devuelve secciones claras, puntos clave y resumen final.\n\n".$note->content;
 
         try {
             $response = Http::withHeaders([
@@ -70,6 +100,8 @@ class ProcessNoteWithAI implements ShouldQueue
                     'error_message' => 'Error HTTP al consumir Claude API.',
                 ]);
 
+                $note->update(['status' => 'failed']);
+
                 return;
             }
 
@@ -86,10 +118,15 @@ class ProcessNoteWithAI implements ShouldQueue
                     'error_message' => 'La API respondió sin contenido usable.',
                 ]);
 
+                $note->update(['status' => 'failed']);
+
                 return;
             }
 
-            $note->update(['ai_content' => $aiText]);
+            $note->update([
+                'ai_content' => $aiText,
+                'status' => 'ready',
+            ]);
 
             AiLog::create([
                 'user_id' => $note->user_id,
@@ -106,6 +143,8 @@ class ProcessNoteWithAI implements ShouldQueue
                 'status' => 'failed',
                 'error_message' => $e->getMessage(),
             ]);
+
+            $note->update(['status' => 'failed']);
         }
     }
 }

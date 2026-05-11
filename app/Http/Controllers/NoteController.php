@@ -7,6 +7,7 @@ use App\Models\Note;
 use App\Models\Subject;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\View\View;
 
 class NoteController extends Controller
@@ -32,12 +33,22 @@ class NoteController extends Controller
         return view('notes.create', compact('subjects'));
     }
 
+    public function show(Note $note): View
+    {
+        $this->authorize('view', $note);
+
+        $note->load('subject');
+
+        return view('notes.show', compact('note'));
+    }
+
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
             'subject_id' => ['nullable', 'integer', 'exists:subjects,id'],
             'title' => ['required', 'string', 'max:255'],
             'content' => ['required', 'string', 'max:10000'],
+            'ai_content' => ['nullable', 'string', 'max:100000'],
         ]);
 
         if (!empty($validated['subject_id'])) {
@@ -53,12 +64,25 @@ class NoteController extends Controller
             }
         }
 
-        $note = $request->user()->notes()->create($validated);
+        $payload = [
+            'subject_id' => $validated['subject_id'] ?? null,
+            'title' => $validated['title'],
+            'raw_content' => $validated['content'],
+            'status' => 'ready',
+        ];
 
-        ProcessNoteWithAI::dispatch($note->id);
+        if (Schema::hasColumn('notes', 'content')) {
+            $payload['content'] = $validated['content'];
+        }
+
+        if (!empty($validated['ai_content'])) {
+            $payload['ai_content'] = $validated['ai_content'];
+        }
+
+        $request->user()->notes()->create($payload);
 
         return redirect()
             ->route('notes.index')
-            ->with('status', 'Nota creada. La IA la está procesando.');
+            ->with('status', 'Nota guardada exitosamente.');
     }
 }

@@ -16,8 +16,9 @@ return new class extends Migration
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->foreignId('subject_id')->nullable()->constrained()->nullOnDelete();
             $table->string('title');
-            $table->longText('content');
+            $table->longText('raw_content');
             $table->longText('ai_content')->nullable();
+            $table->string('status')->default('pending');
             $table->timestamps();
         });
     }
